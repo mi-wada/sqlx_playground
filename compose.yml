@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  # PASSWORD=password psql -h localhost -p 5432 -U user -d db
+  postgres:
+    image: postgres:16.2
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
