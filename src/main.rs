@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use sqlx::{error::ErrorKind, Row};
+    use sqlx::{error::ErrorKind, postgres::PgRow, FromRow, Row};
 
     use super::*;
 
@@ -29,6 +29,16 @@ mod tests {
         Ok(row.get("id"))
     }
 
+    async fn insert_post(pool: &Pool<Postgres>, user_id: i32, content: &str) -> Result<i32> {
+        let row = sqlx::query("INSERT INTO posts (user_id, content) VALUES ($1, $2) RETURNING id")
+            .bind(user_id)
+            .bind(content)
+            .fetch_one(pool)
+            .await?;
+
+        Ok(row.get("id"))
+    }
+
     #[derive(sqlx::FromRow, Debug, PartialEq)]
     struct User {
         id: i32,
@@ -36,6 +46,13 @@ mod tests {
         email: String,
         note: Option<String>,
         is_active: bool,
+    }
+
+    #[derive(sqlx::FromRow, Debug, PartialEq)]
+    struct Post {
+        id: i32,
+        user_id: i32,
+        content: String,
     }
 
     #[tokio::test]
@@ -242,6 +259,71 @@ mod tests {
 
         assert_eq!(user, None);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn from_row_2() -> Result<()> {
+        #[derive(sqlx::Type, PartialEq, Debug)]
+        #[sqlx(transparent)]
+        struct UserId(i32);
+
+        #[derive(sqlx::FromRow)]
+        struct User {
+            id: UserId,
+            name: String,
+            email: String,
+            note: Option<String>,
+            is_active: bool,
+        }
+
+        let pool = connect_postgres().await?;
+        let user_id = insert_user(&pool, "John Doe", "hoge@example.com").await?;
+
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await?;
+
+        assert_eq!(user.id, UserId(user_id));
+        assert_eq!(user.name, "John Doe");
+        assert_eq!(user.email, "hoge@example.com");
+        assert_eq!(user.note, None);
+        assert_eq!(user.is_active, true);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn from_row_3() -> Result<()> {
+        #[derive(sqlx::FromRow)]
+        struct User {
+            id: i32,
+            name: String,
+            email: String,
+            note: Option<String>,
+            is_active: bool,
+            #[sqlx(skip)]
+            posts: Vec<Post>,
+        }
+
+        let pool = connect_postgres().await?;
+        let user_id = insert_user(&pool, "name", "email").await?;
+        let post_id = insert_post(&pool, user_id, "body").await?;
+
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await?;
+
+        let posts = sqlx::query_as::<_, Post>("SELECT * FROM posts WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&pool)
+            .await?;
+
+        let user = User { posts, ..user };
+
+        assert_eq!(user.posts.len(), 1);
         Ok(())
     }
 }

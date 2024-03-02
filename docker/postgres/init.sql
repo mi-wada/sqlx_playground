@@ -9,3 +9,10 @@ CREATE TABLE IF NOT EXISTS users (
   note VARCHAR(255),
   is_active BOOLEAN DEFAULT TRUE
 );
+
+CREATE TABLE IF NOT EXISTS posts (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);

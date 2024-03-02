@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PASSWORD=password psql -h localhost -p 5432 -U user -d db
   postgres:
