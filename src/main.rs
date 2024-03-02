@@ -29,7 +29,7 @@ mod tests {
         Ok(row.get("id"))
     }
 
-    #[derive(sqlx::FromRow)]
+    #[derive(sqlx::FromRow, Debug, PartialEq)]
     struct User {
         id: i32,
         name: String,
@@ -166,6 +166,81 @@ mod tests {
         assert!(
             matches!(res, Err(sqlx::Error::Database(err)) if err.kind() == ErrorKind::NotNullViolation)
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tx_commit() -> Result<()> {
+        let pool = connect_postgres().await?;
+        let mut tx = pool.begin().await?;
+
+        let row = sqlx::query("INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id")
+            .bind("John Doe")
+            .bind("hoge")
+            .fetch_one(&mut *tx)
+            .await?;
+        let user_id: i32 = row.get("id");
+
+        tx.commit().await?;
+
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await?;
+
+        assert_eq!(user.id, user_id);
+        assert_eq!(user.name, "John Doe");
+        assert_eq!(user.email, "hoge");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tx_explicit_rollback() -> Result<()> {
+        let pool = connect_postgres().await?;
+        let mut tx = pool.begin().await?;
+
+        let row = sqlx::query("INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id")
+            .bind("John Doe")
+            .bind("hoge")
+            .fetch_one(&mut *tx)
+            .await?;
+        let user_id: i32 = row.get("id");
+
+        tx.rollback().await?;
+
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&pool)
+            .await?;
+
+        assert_eq!(user, None);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tx_implicit_rollback() -> Result<()> {
+        let pool = connect_postgres().await?;
+        let user_id: i32 = {
+            let mut tx = pool.begin().await?;
+
+            let row = sqlx::query("INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id")
+                .bind("John Doe")
+                .bind("hoge")
+                .fetch_one(&mut *tx)
+                .await?;
+
+            row.get("id")
+        };
+
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&pool)
+            .await?;
+
+        assert_eq!(user, None);
 
         Ok(())
     }
