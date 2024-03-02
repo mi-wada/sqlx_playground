@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use sqlx::{error::ErrorKind, Row};
+    use sqlx::{error::ErrorKind, postgres::PgRow, FromRow, Row};
 
     use super::*;
 
@@ -241,6 +241,38 @@ mod tests {
             .await?;
 
         assert_eq!(user, None);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn from_row_2() -> Result<()> {
+        #[derive(sqlx::Type, PartialEq, Debug)]
+        #[sqlx(transparent)]
+        struct UserId(i32);
+
+        #[derive(sqlx::FromRow)]
+        struct User {
+            id: UserId,
+            name: String,
+            email: String,
+            note: Option<String>,
+            is_active: bool,
+        }
+
+        let pool = connect_postgres().await?;
+        let user_id = insert_user(&pool, "John Doe", "hoge@example.com").await?;
+
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await?;
+
+        assert_eq!(user.id, UserId(user_id));
+        assert_eq!(user.name, "John Doe");
+        assert_eq!(user.email, "hoge@example.com");
+        assert_eq!(user.note, None);
+        assert_eq!(user.is_active, true);
 
         Ok(())
     }
